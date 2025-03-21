@@ -12,11 +12,11 @@ TOP = ../..
 PRECISION   = DOUBLE
 
 # running 2d inputs files requires a 2d executable set here
-DIM         = 3
+DIM         = 2
 COMP        = gnu
 
-DEBUG       = FALSE
-USE_MPI     = TRUE
+DEBUG       = TRUE
+USE_MPI     = FALSE
 USE_OMP     = FALSE
 PROFILE     = FALSE
 

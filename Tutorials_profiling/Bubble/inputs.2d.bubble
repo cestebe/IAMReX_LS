@@ -67,7 +67,7 @@ amr.plot_int		= 50
 #*******************************************************************************
 
 # CFL number to be used in calculating the time step : dt = dx / max(velocity)
-ns.cfl                  = 0.9  # CFL number used to set dt
+ns.cfl                  = 0.5  # CFL number used to set dt
 
 #*******************************************************************************
 

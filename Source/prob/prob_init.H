@@ -33,6 +33,8 @@ struct InitialConditions
   // for Rayleigh-Taylor
   amrex::Real rho_1 = 1.0;
   amrex::Real rho_2 = 2.0;
+  amrex::Real temp_1 = 20.0;
+  amrex::Real temp_2 = 20.0;
   amrex::Real tra_1 = 0.0;
   amrex::Real tra_2 = 1.0;
   amrex::Real pertamp = 1.0;
@@ -53,8 +55,12 @@ struct InitialConditions
   int do_phi  = 0;
   int Density = 0;
   int phicomp = 0;
+  int Temp = 0;
   amrex::Real rho_w = 3.0;
   amrex::Real rho_a = 1.0;
+  
+  int temp_to_phi = 0;
+  int tcontour = 0;
 
 };
 
@@ -147,6 +153,17 @@ static void init_RayleighTaylor (amrex::Box const& vbx,
 // ls related
 //
 static void init_RayleighTaylor_LS (amrex::Box const& vbx,
+              amrex::Array4<amrex::Real> const& press,
+              amrex::Array4<amrex::Real> const& vel,
+              amrex::Array4<amrex::Real> const& scal,
+              int nscal,
+              amrex::Box const& domain,
+              amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& dx,
+              amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& problo,
+              amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& probhi,
+              InitialConditions IC);
+              
+static void init_TempToLS (amrex::Box const& vbx,
               amrex::Array4<amrex::Real> const& press,
               amrex::Array4<amrex::Real> const& vel,
               amrex::Array4<amrex::Real> const& scal,

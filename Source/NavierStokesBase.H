@@ -213,7 +213,7 @@ public:
     //
     void fill_allgts (amrex::MultiFab& mf, int type, int scomp, int ncomp, amrex::Real time);
     void reinit ();
-    void reinitialization_sussman (amrex::Real dt, int loop_iter);
+    void reinitialization_sussman (amrex::Real dt, amrex::MultiFab& normgradphi, int loop_iter);
     void reinitialization_consls (amrex::Real dt, int loop_iter, amrex::Real epsG, amrex::Real epsG2);
     void phi_to_sgn0 (amrex::MultiFab& phi);
     amrex::MultiFab& get_phi_half_time ();
@@ -235,6 +235,7 @@ public:
                           amrex::MultiFab& phi_original,
                           amrex::MultiFab& phi2,
                           amrex::MultiFab& phi3,
+                          amrex::MultiFab& normgradphi,
                           amrex::MultiFab& ld,
                           amrex::MultiFab& lambdad,
                           amrex::MultiFab& deltafunc_alias,
@@ -870,10 +871,15 @@ public:
     static int lev0step_of_reinit;
     static int number_of_reinit;
     static int reinit_levelset;
+    
+    // for setting phi to isocontour
+    static int temp_to_phi;
+    static amrex::Real tcontour;
 
     // for reinit_sussman  
     amrex::MultiFab phi_original;
     amrex::MultiFab sgn0;
+    static int do_massfix;
 
     static int  do_cons_phi;
     static int  prescribed_vel;

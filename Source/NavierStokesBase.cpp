@@ -201,6 +201,10 @@ int NavierStokesBase::isolver  = 0;
 //
 // ls related
 //
+int NavierStokesBase::temp_to_phi = 0;
+Real NavierStokesBase::tcontour = 0;
+int NavierStokesBase::do_massfix = 1;
+
 int NavierStokesBase::do_phi   = 0;
 int NavierStokesBase::phicomp  = 0;
 int NavierStokesBase::epsilon  = 2;
@@ -673,6 +677,12 @@ NavierStokesBase::Initialize ()
         pp.query("reinit_levelset", reinit_levelset);
 
         pp.query("do_cons_phi", do_cons_phi);
+        
+        pp.query("temp_to_phi", temp_to_phi);
+        if(temp_to_phi){
+            pp.query("tcontour", tcontour);
+        }
+        pp.query("do_massfix", do_massfix);
 
     }
 
@@ -5391,6 +5401,13 @@ NavierStokesBase::reinit()
 
     if(reinit_levelset==1) {
         BL_ASSERT(do_cons_levelset==0);
+        
+        if(temp_to_phi){
+            //reinit phi to temperature isocontour 'tcontour'
+            MultiFab&  S_new    = get_new_data(State_Type);
+            MultiFab::Copy(phi_ctime, S_new, Temp, 0, 1, rho_ptime.nGrow()); //copy Temperature to phi
+            phi_ctime.plus(-tcontour, 1); // LS interface to specified contour level
+        }
 
         // Step 1: copy phi_ctime to phi_original
         MultiFab::Copy(phi_original, phi_ctime, 0, 0, 1, phi_ctime.nGrow());
@@ -5399,11 +5416,13 @@ NavierStokesBase::reinit()
         const Real coeff = 0.5;
         Real dtlevel = coeff * dxmin;
         amrex::Print() << "level " << level << " dtlevel " << dtlevel << std::endl;
+        
+        MultiFab normgradphi(grids,dmap,1,2); // || grad phi_orig ||
 
         // Step 3: only reinitialize the ls function on the current level
         for (int k=1; k<=number_of_reinit; k++)
         {
-            reinitialization_sussman(dtlevel, k);
+            reinitialization_sussman(dtlevel, normgradphi, k);
         }
 
     }
@@ -5476,8 +5495,7 @@ NavierStokesBase::reinitialization_consls (Real dt,
 }
 
 void
-NavierStokesBase::reinitialization_sussman (Real dt,
-                       int  loop_iter)
+NavierStokesBase::reinitialization_sussman (Real dt, MultiFab& normgradphi, int  loop_iter)
 {
     
     if (verbose) amrex::Print() << "In the NavierStokesBase::reinitialization_sussman() " << std::endl;
@@ -5486,6 +5504,13 @@ NavierStokesBase::reinitialization_sussman (Real dt,
     // Step 1: get sgn, similiar to heaviside
     if (loop_iter==1) {
         phi_to_sgn0(phi_original);
+        /*
+        //test setting phi to smooth sign function
+        if (1==0) {
+            MultiFab::Copy(phi_original, sgn0, 0, 0, 1, phi_original.nGrow());
+            MultiFab::Copy(phi_ctime, sgn0, 0, 0, 1, phi_ctime.nGrow());
+        }
+        */
     }
 
     // Step 2: RK2
@@ -5496,6 +5521,10 @@ NavierStokesBase::reinitialization_sussman (Real dt,
     MultiFab G0(grids,dmap,1,2);
     phi2.setVal(0.0); phi3.setVal(0.0); G0.setVal(0.0);
     rk_first_reinit(phi_ctime, phi2, phi3, sgn0, G0, dt, phi_original);
+    
+    if (loop_iter==1){
+        MultiFab::Copy(normgradphi, phi3, 0, 0, 1, 2);
+    }
 
     // Step 3: copy phi_ctime back to phi in S_new, fill phi's bc data in S_new, then
     // copy it to phi_ctime
@@ -5518,11 +5547,14 @@ NavierStokesBase::reinitialization_sussman (Real dt,
     MultiFab ld(grids,dmap,1,2);
     MultiFab lambdad(grids,dmap,1,2);
     MultiFab deltafunc(grids,dmap,1,2);
-    phi2.setVal(0.0); phi3.setVal(0.0); ld.setVal(0.0); lambdad.setVal(0.0); deltafunc.setVal(0.0);
+    phi2.setVal(0.0); //phi3.setVal(0.0); //! keep phi3=||phi_orig||
+    ld.setVal(0.0); lambdad.setVal(0.0); deltafunc.setVal(0.0);
 
     // Step 6-2: mass_fix
-    mass_fix(phi_ctime, phi_original, phi2, phi3, ld, lambdad, deltafunc, dt, loop_iter);
-
+    if (do_massfix){
+        mass_fix(phi_ctime, phi_original, phi2, phi3, normgradphi, ld, lambdad, deltafunc, dt, loop_iter);
+    }
+    
     // Step 6-3: same as Step 5
     MultiFab::Copy(S_new, phi_ctime, 0, phicomp, 1, phi_ctime.nGrow());
     fill_allgts(S_new,State_Type,phicomp,1,cur_time);
@@ -6067,6 +6099,7 @@ NavierStokesBase::mass_fix (MultiFab& phi_ctime,
                           MultiFab& phi_original,
                           MultiFab& phi2,
                           MultiFab& phi3,
+                          MultiFab& normgradphi,
                           MultiFab& ld,
                           MultiFab& la,
                           MultiFab& deltafunc,
@@ -6113,13 +6146,14 @@ NavierStokesBase::mass_fix (MultiFab& phi_ctime,
         const Box& bx = mfi.growntilebox();
         auto const& phi2fab   = phi2.array(mfi);
         auto const& phi3fab   = phi3.array(mfi);
+        auto const& normgradphifab = normgradphi.array(mfi);
         auto const& deltafab  = deltafunc.array(mfi);
         auto const& ldfab     = ld.array(mfi);
-        amrex::ParallelFor(bx, [phi2fab, phi3fab, deltafab, ldfab]
+        amrex::ParallelFor(bx, [phi2fab, phi3fab, normgradphifab, deltafab, ldfab]
         AMREX_GPU_DEVICE(int i, int j, int k) noexcept
         {
             phi2fab(i,j,k) = -1.0 * deltafab(i,j,k) * ldfab(i,j,k);
-            phi3fab(i,j,k) = deltafab(i,j,k) * deltafab(i,j,k);
+            phi3fab(i,j,k) = deltafab(i,j,k) * deltafab(i,j,k) * normgradphifab(i,j,k);
         });
     }
 
@@ -6248,14 +6282,17 @@ NavierStokesBase::mass_fix (MultiFab& phi_ctime,
     {
         const Box& vbx = mfi.validbox();
         auto const& phifab    = phi_ctime.array(mfi);
+        auto const& normgradphifab = normgradphi.array(mfi);
         auto const& lafab     = la.array(mfi);
         auto const& deltafab  = deltafunc.array(mfi);
-        amrex::ParallelFor(vbx, [phifab, lafab, deltafab, tao]
+        amrex::ParallelFor(vbx, [phifab, normgradphifab, lafab, deltafab, tao, loop_iter]
         AMREX_GPU_DEVICE(int i, int j, int k) noexcept
         {
-            phifab(i,j,k) += tao * lafab(i,j,k) * deltafab(i,j,k);
+            phifab(i,j,k) += tao * lafab(i,j,k) * deltafab(i,j,k) * normgradphifab(i,j,k);
         });
     }
+    
+    
 
     // {
     //   // amrex::Gpu::LaunchSafeGuard lsg(false); // no needed here!

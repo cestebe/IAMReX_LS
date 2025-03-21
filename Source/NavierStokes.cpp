@@ -438,7 +438,7 @@ NavierStokes::initData ()
           else
            Print() << "Found " << velocity_plotfile_xvel_name << ", idX = " << idX << '\n';
 
-    MultiFab& S_new = get_new_data(State_Type);
+        MultiFab& S_new = get_new_data(State_Type);
         MultiFab  tmp(S_new.boxArray(), S_new.DistributionMap(), 1, 0);
         for (int i = 0; i < AMREX_SPACEDIM; i++)
         {
@@ -1257,6 +1257,11 @@ NavierStokes::post_init (Real stop_time)
       NavierStokesBase::dt_avg[level] = 0.;
       const amrex::Real dt_level = parent->dtLevel(level);
       time_average(NavierStokesBase::time_avg[level], NavierStokesBase::time_avg_fluct[level], NavierStokesBase::dt_avg[level], dt_level);
+    }
+    
+    if(temp_to_phi){
+        //init phi to temperature isocontour 'tcontour'
+        reinit();
     }
 
 }

@@ -14,5 +14,12 @@ log*
 bl_prof*
 case_results*/
 tmp_build_dir/
+Backtrace*
+*.visit
+*.tec
+*.stl
+temptecplot*
+*.session
+*.gui
 
 .codegpt

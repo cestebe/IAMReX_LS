@@ -53,6 +53,8 @@ void NavierStokes::prob_initData ()
     // For Rayleigh-Taylor problem
     pp.query("rho_1",IC.rho_1);
     pp.query("rho_2",IC.rho_2);
+    pp.query("temp_1",IC.temp_1);
+    pp.query("temp_2",IC.temp_2);
     pp.query("tra_1",IC.tra_1);
     pp.query("tra_2",IC.tra_2);
     pp.query("perturbation_amplitude",IC.pertamp);
@@ -82,11 +84,16 @@ void NavierStokes::prob_initData ()
     // ls related
     //
     IC.do_phi = do_phi;
+    IC.temp_to_phi = temp_to_phi;
     if (do_phi) {
       IC.Density = Density; // Bug to be fixed: IC.Density is density value, yet Density is the scomp.
       IC.phicomp = phicomp;
+      IC.Temp = Temp;
       IC.rho_w = rho_w;
       IC.rho_a = rho_a;
+      if (temp_to_phi){
+        IC.tcontour = tcontour;
+      }
     }
 
     //
@@ -214,6 +221,11 @@ void NavierStokes::prob_initData ()
            FallingSphere(vbx, P_new.array(mfi), S_new.array(mfi, Xvel),
                              S_new.array(mfi, Density), nscal,
                             domain, dx, problo, probhi, IC);
+        }
+        else if ( 120 == probtype ){
+            init_TempToLS(vbx, P_new.array(mfi), S_new.array(mfi, Xvel),
+                                  S_new.array(mfi, Density), nscal,
+                                  domain, dx, problo, probhi, IC);
         }
         else
         {
@@ -830,6 +842,76 @@ void NavierStokes::init_RayleighTaylor_LS (Box const& vbx,
 
 #elif (AMREX_SPACEDIM == 3)
 #endif
+}
+
+void NavierStokes::init_TempToLS (Box const& vbx,
+                      Array4<Real> const& /*press*/,
+                      Array4<Real> const& vel,
+                      Array4<Real> const& scal,
+                      const int nscal,
+                      Box const& domain,
+                      GpuArray<Real, AMREX_SPACEDIM> const& dx,
+                      GpuArray<Real, AMREX_SPACEDIM> const& problo,
+                      GpuArray<Real, AMREX_SPACEDIM> const& /*probhi*/,
+                      InitialConditions IC)
+{
+  int testcase = 0;  
+    
+  const auto domlo = amrex::lbound(domain);
+
+  amrex::ParallelFor(vbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+  {
+    Real x = problo[0] + (i - domlo.x + 0.5)*dx[0];
+    Real y = problo[1] + (j - domlo.y + 0.5)*dx[1];
+
+    //
+    // Fill Velocity
+    //
+    vel(i,j,k,0) = IC.v_x;
+    vel(i,j,k,1) = IC.v_y;
+
+#if (AMREX_SPACEDIM == 3)
+    Real z = problo[2] + (k - domlo.z + 0.5)*dx[2];
+
+    vel(i,j,k,2) = IC.v_z;
+#endif
+
+    //
+    // Scalars, ordered as Density, Tracer(s), Temp, LS
+    //
+    scal(i,j,k,0) = IC.density;
+
+    // Tracers
+    scal(i,j,k,1) = 0.0;
+    for ( int nt=2; nt<nscal; nt++)
+    {
+      scal(i,j,k,nt) = 0.0;
+    }
+    
+    //Temp
+    if (testcase == 0) {
+        const Real A = std::cos(x)*std::sin(y);
+        const Real B = std::sin(x)*std::cos(y);
+        scal(i,j,k,IC.Temp-IC.Density) = std::sqrt(pow(A,2)+pow(B,2));
+    } else if (testcase == 1) {
+        const Real Rx = 1;
+        const Real Ry = 2;
+        Real qx = std::abs(x)-Rx;
+        Real qy = std::abs(y)-Ry;
+        //ls, rectangle centered at origin
+        Real dist = std::sqrt(std::pow(std::max(qx,0.0),2) + std::pow(std::max(qy,0.0),2)) 
+                    + min(max(qx,qy),0.0);
+        scal(i,j,k,IC.Temp-IC.Density) = 3.0 * dist;
+    }
+    
+    
+    
+    // LS initialized to Temp, interface at tcontour
+    if (IC.do_phi) {
+      scal(i,j,k,IC.phicomp-IC.Density) = scal(i,j,k,nscal-2) - tcontour; 
+    } 
+    
+  });
 }
 
 // 
